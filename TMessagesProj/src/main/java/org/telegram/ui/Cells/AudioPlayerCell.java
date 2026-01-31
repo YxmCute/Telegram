@@ -8,17 +8,25 @@
 
 package org.telegram.ui.Cells;
 
+import static org.telegram.messenger.AndroidUtilities.dp;
+
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
 import android.text.Layout;
 import android.text.SpannableStringBuilder;
 import android.text.StaticLayout;
 import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.DownloadController;
@@ -31,16 +39,21 @@ import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.Theme;
+import org.telegram.ui.Components.AnimatedEmojiDrawable;
+import org.telegram.ui.Components.AnimatedEmojiSpan;
 import org.telegram.ui.Components.DotDividerSpan;
+import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.MediaActionDrawable;
 import org.telegram.ui.Components.RadialProgress2;
 import org.telegram.ui.FilteredSearchView;
+import org.telegram.ui.GradientClip;
 
 import java.io.File;
 
-public class AudioPlayerCell extends View implements DownloadController.FileDownloadProgressListener {
+public class AudioPlayerCell extends FrameLayout implements DownloadController.FileDownloadProgressListener {
 
     private boolean buttonPressed;
     private boolean miniButtonPressed;
@@ -48,13 +61,18 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
     private int buttonX;
     private int buttonY;
 
-    private int titleY = AndroidUtilities.dp(9);
+    private final int titleY = dp(9);
+    private AnimatedEmojiSpan.EmojiGroupedSpans titleLayoutEmojis;
     private StaticLayout titleLayout;
 
-    private int descriptionY = AndroidUtilities.dp(29);
+    private final int descriptionY = dp(29);
+    private AnimatedEmojiSpan.EmojiGroupedSpans descriptionLayoutEmojis;
     private StaticLayout descriptionLayout;
 
+    private final ImageView optionsButton;
+
     private MessageObject currentMessageObject;
+    private boolean needDivider;
 
     private int currentAccount = UserConfig.selectedAccount;
     private int TAG;
@@ -72,11 +90,22 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
 
     public AudioPlayerCell(Context context, int viewType, Theme.ResourcesProvider resourcesProvider) {
         super(context);
+        this.setWillNotDraw(false);
         this.resourcesProvider = resourcesProvider;
         this.viewType = viewType;
 
+        optionsButton = new ImageView(context);
+        optionsButton.setScaleType(ImageView.ScaleType.CENTER);
+        optionsButton.setImageResource(R.drawable.ic_ab_other);
+        optionsButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon, resourcesProvider), PorterDuff.Mode.SRC_IN));
+        optionsButton.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector, resourcesProvider), Theme.RIPPLE_MASK_CIRCLE_20DP));
+        addView(optionsButton, LayoutHelper.createFrame(42, 42, (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL, 5, 0, 5, 0));
+        optionsButton.setOnClickListener(v -> {
+
+        });
+
         radialProgress = new RadialProgress2(this, resourcesProvider);
-        radialProgress.setColors(Theme.key_chat_inLoader, Theme.key_chat_inLoaderSelected, Theme.key_chat_inMediaIcon, Theme.key_chat_inMediaIconSelected);
+        radialProgress.setColorKeys(Theme.key_chat_inLoader, Theme.key_chat_inLoaderSelected, Theme.key_chat_inMediaIcon, Theme.key_chat_inMediaIconSelected);
         TAG = DownloadController.getInstance(currentAccount).generateObserverTag();
         setFocusable(true);
 
@@ -93,13 +122,14 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
         titleLayout = null;
 
         int viewWidth = MeasureSpec.getSize(widthMeasureSpec);
-        int maxWidth = viewWidth - AndroidUtilities.dp(AndroidUtilities.leftBaseline) - AndroidUtilities.dp(8 + 20);
+        int maxWidth = viewWidth - dp(AndroidUtilities.leftBaseline) - dp(16 + 32);
 
         try {
             String title = currentMessageObject.getMusicTitle();
             int width = (int) Math.ceil(Theme.chat_contextResult_titleTextPaint.measureText(title));
             CharSequence titleFinal = TextUtils.ellipsize(title.replace('\n', ' '), Theme.chat_contextResult_titleTextPaint, Math.min(width, maxWidth), TextUtils.TruncateAt.END);
-            titleLayout = new StaticLayout(titleFinal, Theme.chat_contextResult_titleTextPaint, maxWidth + AndroidUtilities.dp(4), Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            titleLayout = new StaticLayout(titleFinal, Theme.chat_contextResult_titleTextPaint, maxWidth + dp(4), Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            titleLayoutEmojis = AnimatedEmojiSpan.update(AnimatedEmojiDrawable.CACHE_TYPE_MESSAGES, this, titleLayoutEmojis, titleLayout);
         } catch (Exception e) {
             FileLog.e(e);
         }
@@ -107,29 +137,47 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
         try {
             CharSequence author = currentMessageObject.getMusicAuthor().replace('\n', ' ');
             if (viewType == VIEW_TYPE_GLOBAL_SEARCH) {
-                author = new SpannableStringBuilder(author).append(' ').append(dotSpan).append(' ').append(FilteredSearchView.createFromInfoString(currentMessageObject));
+                author = new SpannableStringBuilder(author).append(' ').append(dotSpan).append(' ').append(FilteredSearchView.createFromInfoString(currentMessageObject, 2));
             }
             CharSequence authorFinal = TextUtils.ellipsize(author, Theme.chat_contextResult_descriptionTextPaint, maxWidth, TextUtils.TruncateAt.END);
-            descriptionLayout = new StaticLayout(authorFinal, Theme.chat_contextResult_descriptionTextPaint, maxWidth + AndroidUtilities.dp(4), Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            descriptionLayout = new StaticLayout(authorFinal, Theme.chat_contextResult_descriptionTextPaint, maxWidth + dp(4), Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            descriptionLayoutEmojis = AnimatedEmojiSpan.update(AnimatedEmojiDrawable.CACHE_TYPE_MESSAGES, this, descriptionLayoutEmojis, descriptionLayout);
         } catch (Exception e) {
             FileLog.e(e);
         }
 
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), AndroidUtilities.dp(56));
+        super.onMeasure(
+            MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(dp(56), MeasureSpec.EXACTLY)
+        );
 
-        int maxPhotoWidth = AndroidUtilities.dp(52);
-        int x = LocaleController.isRTL ? MeasureSpec.getSize(widthMeasureSpec) - AndroidUtilities.dp(8) - maxPhotoWidth : AndroidUtilities.dp(8);
-        radialProgress.setProgressRect(buttonX = x + AndroidUtilities.dp(4), buttonY = AndroidUtilities.dp(6), x + AndroidUtilities.dp(48), AndroidUtilities.dp(50));
+        int maxPhotoWidth = dp(52);
+        int x = LocaleController.isRTL ? MeasureSpec.getSize(widthMeasureSpec) - dp(8) - maxPhotoWidth : dp(8);
+        radialProgress.setProgressRect(buttonX = x + dp(4), buttonY = dp(6), x + dp(48), dp(50));
     }
 
-    public void setMessageObject(MessageObject messageObject) {
+    public void setMessageObject(
+        MessageObject messageObject,
+        boolean reorder,
+        View.OnClickListener onOptions,
+        boolean needDivider,
+        View.OnTouchListener onReorderTouchListener
+    ) {
         currentMessageObject = messageObject;
-        TLRPC.Document document = messageObject.getDocument();
-        TLRPC.PhotoSize thumb = document != null ? FileLoader.getClosestPhotoSizeWithSize(document.thumbs, 90) : null;
+        if (this.needDivider != needDivider) {
+            invalidate();
+        }
+        this.needDivider = needDivider;
+        optionsButton.setImageResource(reorder ? R.drawable.list_reorder : R.drawable.ic_ab_other);
+        optionsButton.setVisibility(reorder || onOptions != null ? View.VISIBLE : View.GONE);
+        optionsButton.setOnClickListener(onOptions);
+        optionsButton.setOnTouchListener(onReorderTouchListener);
+        final TLRPC.Document document = messageObject.getDocument();
+        final TLRPC.PhotoSize thumb = document != null ? FileLoader.getClosestPhotoSizeWithSize(document.thumbs, 90) : null;
         if (thumb instanceof TLRPC.TL_photoSize || thumb instanceof TLRPC.TL_photoSizeProgressive) {
             radialProgress.setImageOverlay(thumb, document, messageObject);
         } else {
-            String artworkUrl = messageObject.getArtworkUrl(true);
+            final String artworkUrl = messageObject.getArtworkUrl(true);
             if (!TextUtils.isEmpty(artworkUrl)) {
                 radialProgress.setImageOverlay(artworkUrl);
             } else {
@@ -145,12 +193,18 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
         super.onDetachedFromWindow();
         radialProgress.onDetachedFromWindow();
         DownloadController.getInstance(currentAccount).removeLoadingFileObserver(this);
+
+        AnimatedEmojiSpan.release(this, titleLayoutEmojis);
+        AnimatedEmojiSpan.release(this, descriptionLayoutEmojis);
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         radialProgress.onAttachedToWindow();
+
+        titleLayoutEmojis = AnimatedEmojiSpan.update(AnimatedEmojiDrawable.CACHE_TYPE_MESSAGES, this, titleLayoutEmojis, titleLayout);
+        descriptionLayoutEmojis = AnimatedEmojiSpan.update(AnimatedEmojiDrawable.CACHE_TYPE_MESSAGES, this, descriptionLayoutEmojis, descriptionLayout);
     }
 
     public MessageObject getMessageObject() {
@@ -161,10 +215,10 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
         int x = (int) event.getX();
         int y = (int) event.getY();
         boolean result = false;
-        int side = AndroidUtilities.dp(36);
+        int side = dp(36);
         boolean area = false;
         if (miniButtonState >= 0) {
-            int offset = AndroidUtilities.dp(27);
+            int offset = dp(27);
             area = x >= buttonX + offset && x <= buttonX + offset + side && y >= buttonY + offset && y <= buttonY + offset + side;
         }
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -212,7 +266,7 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
         if (miniButtonState == 0) {
             miniButtonState = 1;
             radialProgress.setProgress(0, false);
-            FileLoader.getInstance(currentAccount).loadFile(currentMessageObject.getDocument(), currentMessageObject, 1, 0);
+            FileLoader.getInstance(currentAccount).loadFile(currentMessageObject.getDocument(), currentMessageObject, FileLoader.PRIORITY_HIGH, 0);
             radialProgress.setMiniIcon(getMiniIconForCurrentState(), false, true);
             invalidate();
         } else if (miniButtonState == 1) {
@@ -229,7 +283,7 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
     public void didPressedButton() {
         if (buttonState == 0) {
             if (miniButtonState == 0) {
-                FileLoader.getInstance(currentAccount).loadFile(currentMessageObject.getDocument(), currentMessageObject, 1, 0);
+                FileLoader.getInstance(currentAccount).loadFile(currentMessageObject.getDocument(), currentMessageObject, FileLoader.PRIORITY_NORMAL, 0);
             }
             if (MediaController.getInstance().findMessageInPlaylistAndPlay(currentMessageObject)) {
                 if (hasMiniProgress == 2 && miniButtonState != 1) {
@@ -250,7 +304,7 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
             }
         } else if (buttonState == 2) {
             radialProgress.setProgress(0, false);
-            FileLoader.getInstance(currentAccount).loadFile(currentMessageObject.getDocument(), currentMessageObject, 1, 0);
+            FileLoader.getInstance(currentAccount).loadFile(currentMessageObject.getDocument(), currentMessageObject, FileLoader.PRIORITY_NORMAL, 0);
             buttonState = 4;
             radialProgress.setIcon(getIconForCurrentState(), false, true);
             invalidate();
@@ -266,21 +320,36 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
     protected void onDraw(Canvas canvas) {
         if (titleLayout != null) {
             canvas.save();
-            canvas.translate(AndroidUtilities.dp(LocaleController.isRTL ? 8 : AndroidUtilities.leftBaseline), titleY);
+            canvas.translate(dp(LocaleController.isRTL ? 16 : AndroidUtilities.leftBaseline) + (LocaleController.isRTL && optionsButton.getVisibility() == View.VISIBLE ? dp(32) : 0), titleY);
             titleLayout.draw(canvas);
+            AnimatedEmojiSpan.drawAnimatedEmojis(canvas, titleLayout, titleLayoutEmojis, 0, null, 0, 0, 0, 1f);
             canvas.restore();
         }
 
         if (descriptionLayout != null) {
             Theme.chat_contextResult_descriptionTextPaint.setColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText2));
             canvas.save();
-            canvas.translate(AndroidUtilities.dp(LocaleController.isRTL ? 8 : AndroidUtilities.leftBaseline), descriptionY);
+            canvas.translate(dp(LocaleController.isRTL ? 16 : AndroidUtilities.leftBaseline) + (LocaleController.isRTL && optionsButton.getVisibility() == View.VISIBLE ? dp(32) : 0), descriptionY);
             descriptionLayout.draw(canvas);
+            AnimatedEmojiSpan.drawAnimatedEmojis(canvas, descriptionLayout, descriptionLayoutEmojis, 0, null, 0, 0, 0, 1f);
             canvas.restore();
         }
 
         radialProgress.setProgressColor(getThemedColor(buttonPressed ? Theme.key_chat_inAudioSelectedProgress : Theme.key_chat_inAudioProgress));
         radialProgress.draw(canvas);
+
+        super.onDraw(canvas);
+
+        if (needDivider) {
+            final Paint dividerPaint = Theme.getThemePaint(Theme.key_paint_divider, resourcesProvider);
+            if (dividerPaint != null) {
+                if (LocaleController.isRTL) {
+                    canvas.drawRect(0, getHeight() - 1, getWidth() - dp(AndroidUtilities.leftBaseline), getHeight(), dividerPaint);
+                } else {
+                    canvas.drawRect(dp(AndroidUtilities.leftBaseline), getHeight() - 1, getWidth(), getHeight(), dividerPaint);
+                }
+            }
+        }
     }
 
     private int getMiniIconForCurrentState() {
@@ -316,7 +385,7 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
             }
         }
         if (cacheFile == null) {
-            cacheFile = FileLoader.getPathToAttach(currentMessageObject.getDocument());
+            cacheFile = FileLoader.getInstance(currentAccount).getPathToAttach(currentMessageObject.getDocument());
         }
         if (TextUtils.isEmpty(fileName)) {
             return;
@@ -436,8 +505,7 @@ public class AudioPlayerCell extends View implements DownloadController.FileDown
         }
     }
 
-    private int getThemedColor(String key) {
-        Integer color = resourcesProvider != null ? resourcesProvider.getColor(key) : null;
-        return color != null ? color : Theme.getColor(key);
+    private int getThemedColor(int key) {
+        return Theme.getColor(key, resourcesProvider);
     }
 }

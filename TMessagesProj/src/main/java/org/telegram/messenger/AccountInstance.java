@@ -3,6 +3,7 @@ package org.telegram.messenger;
 import android.content.SharedPreferences;
 
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.ui.Components.Paint.PersistColorPalette;
 
 public class AccountInstance {
 
@@ -29,12 +30,20 @@ public class AccountInstance {
         return MessagesController.getInstance(currentAccount);
     }
 
+    public GiftAuctionController getGiftAuctionsController() {
+        return GiftAuctionController.getInstance(currentAccount);
+    }
+
     public MessagesStorage getMessagesStorage() {
         return MessagesStorage.getInstance(currentAccount);
     }
 
     public ContactsController getContactsController() {
         return ContactsController.getInstance(currentAccount);
+    }
+
+    public PersistColorPalette getColorPalette() {
+        return PersistColorPalette.getInstance(currentAccount);
     }
 
     public MediaDataController getMediaDataController() {
@@ -87,6 +96,10 @@ public class AccountInstance {
 
     public SharedPreferences getNotificationsSettings() {
         return MessagesController.getNotificationsSettings(currentAccount);
+    }
+
+    public MemberRequestsController getMemberRequestsController() {
+        return MemberRequestsController.getInstance(currentAccount);
     }
 
     public int getCurrentAccount() {
